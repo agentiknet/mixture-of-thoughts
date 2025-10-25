@@ -33,9 +33,7 @@ fi
 # Activate environment
 if ! conda env list | grep -q "^mot "; then
     echo "Creating conda environment..."
-    conda config --add channels conda-forge 2>/dev/null || true
-    conda config --set channel_priority strict 2>/dev/null || true
-    conda config --remove channels defaults 2>/dev/null || true
+    # Use defaults channel (TOS must be accepted)
     conda create -n mot python=3.10 -y
     
     conda activate mot

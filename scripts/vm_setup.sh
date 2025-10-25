@@ -24,11 +24,8 @@ fi
 # Initialize conda
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
-# Configure conda - use conda-forge to avoid TOS issues
+# Note: If conda TOS error occurs, run: conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 echo "Configuring conda..."
-conda config --add channels conda-forge
-conda config --set channel_priority strict
-conda config --remove channels defaults 2>/dev/null || true
 
 # Clone repo
 echo "Cloning repository..."
