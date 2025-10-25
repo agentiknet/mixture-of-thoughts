@@ -49,7 +49,8 @@ def config_to_args(config: dict):
             self.use_wandb = config.get('use_wandb', False)
             
             # System args
-            self.num_workers = config.get('num_workers', 4)
+            self.num_workers = config.get('num_workers', 8)
+            self.use_compile = config.get('use_compile', False)
             self.seed = config.get('seed', 42)
     
     return Args(config)
