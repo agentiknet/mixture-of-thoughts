@@ -1,0 +1,28 @@
+name: mot
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch>=2.0.0
+  - torchvision
+  - torchaudio
+  - pip
+  - pip:
+    - sympy==1.13.1
+    - fsspec
+    - transformers>=4.30.0
+    - numpy>=1.24.0
+    - tqdm>=4.65.0
+    - matplotlib>=3.7.0
+    - seaborn>=0.12.0
+    - jupyter>=1.0.0
+    - datasets>=2.12.0
+    - wandb>=0.15.0
+    - peft>=0.5.0
+    - pytest
+    - black
+    - isort
+    - flake8
