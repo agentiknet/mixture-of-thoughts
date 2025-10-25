@@ -41,10 +41,48 @@ for i, result in enumerate(results):
     print(f"Branch {i+1}: Creativity={result['creativity_level']:.2f}")
 ```
 
-## 📦 Installation
+## � Project Structure
 
+```
+mixture-of-thoughts/
+├── mot/                    # Core package
+│   ├── core/              # Model components (branch, router, layer, model)
+│   └── __init__.py
+├── configs/               # Configuration files
+│   ├── vm/               # VM deployment configs (H100, A100, L4, T4)
+│   └── training/         # Training configs (optimized per GPU)
+├── scripts/              # All executable scripts
+│   ├── deploy_gcp.sh     # GCP VM deployment
+│   ├── deploy_with_config.sh  # Config-based deployment
+│   ├── train_mot.py      # Main training (supports multi-GPU DDP)
+│   ├── train_with_config.py   # Config-based training wrapper
+│   ├── train_distributed.sh   # Multi-GPU launcher
+│   └── demo_generation.py     # Generation demo
+├── docs/                 # Documentation
+├── tests/                # Test suite
+├── environment.yml       # Conda environment
+└── requirements.txt      # Python dependencies
+```
+
+## �📦 Installation
+
+### Local Setup
 ```bash
 pip install -r requirements.txt
+# or
+bash scripts/setup_env.sh
+```
+
+### GCP Deployment
+```bash
+# Deploy with H100 GPU
+./scripts/deploy_with_config.sh configs/vm/h100.yaml
+
+# Deploy 4x A100 with large model
+./scripts/deploy_with_config.sh configs/vm/a100_multi.yaml configs/training/large_multigpu.yaml
+
+# Monitor training
+./scripts/deploy_gcp.sh monitor
 ```
 
 ## 🏗️ Architecture
@@ -81,6 +119,39 @@ MoT provides real-time metrics:
 - **Code Generation**: Generate diverse implementations
 - **Scientific Discovery**: Explore hypothesis space
 
+## 🏋️ Training
+
+### Local Training
+```bash
+# Small model (~30 min on T4)
+python scripts/train_with_config.py --config configs/training/small.yaml
+
+# Large model
+python scripts/train_with_config.py --config configs/training/h100.yaml
+```
+
+### Multi-GPU Training
+```bash
+# Automatically detects GPUs and uses PyTorch DDP
+./scripts/train_distributed.sh configs/training/large_multigpu.yaml
+```
+
+### Available Configs
+
+**VM Configs** (`configs/vm/`):
+- `t4.yaml` - T4 16GB ($0.35/hr) - Testing
+- `l4.yaml` - L4 24GB ($0.75/hr) - Medium models
+- `a100.yaml` - A100 40GB ($3.67/hr) - Large models
+- `h100.yaml` - H100 80GB ($5/hr) - Extra large models
+- `*_multi.yaml` - 4-GPU configurations
+
+**Training Configs** (`configs/training/`):
+- `small.yaml` - 30M params (256 hidden, 4 layers)
+- `l4.yaml` - 150M params (512 hidden, 8 layers)
+- `a100.yaml` - 250M params (768 hidden, 10 layers)
+- `h100.yaml` - 400M params (1024 hidden, 12 layers)
+- `large_multigpu.yaml` - 900M params (1536 hidden, 16 layers)
+
 ## 📚 Examples
 
 See `notebooks/` for detailed examples:
@@ -88,6 +159,11 @@ See `notebooks/` for detailed examples:
 - `01_quick_start.ipynb`: Basic usage and concepts
 - `02_lora_finetuning.ipynb`: Adapting existing models with LoRA
 - `03_analysis.ipynb`: Analyzing thought patterns and diversity
+
+Run demo:
+```bash
+python scripts/demo_generation.py
+```
 
 ## 🔧 Adapting Existing Models
 
