@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.optim import AdamW
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
+from torch.cuda.amp import autocast, GradScaler
 from transformers import get_linear_schedule_with_warmup
 import argparse
 from pathlib import Path
@@ -102,7 +103,7 @@ def cleanup_distributed():
         torch.distributed.destroy_process_group()
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weight, entropy_weight, rank=0):
+def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weight, entropy_weight, scaler=None, rank=0):
     """Train for one epoch"""
     
     model.train()
@@ -121,17 +122,23 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weigh
         input_ids = input_ids.to(device)
         labels = labels.to(device)
         
-        # Forward pass
-        outputs = model(input_ids)
+        # Forward pass with AMP
+        with autocast(enabled=scaler is not None):
+            outputs = model(input_ids)
+            loss_dict = compute_loss(outputs, labels, diversity_weight, entropy_weight)
         
-        # Compute loss
-        loss_dict = compute_loss(outputs, labels, diversity_weight, entropy_weight)
-        
-        # Backward pass
+        # Backward pass with gradient scaling
         optimizer.zero_grad()
-        loss_dict['total_loss'].backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
+        if scaler is not None:
+            scaler.scale(loss_dict['total_loss']).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss_dict['total_loss'].backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
         scheduler.step()
         
         # Track metrics
@@ -230,6 +237,12 @@ def main(args):
     model = MixtureOfThoughtsTransformer(config)
     model = model.to(device)
     
+    # Apply torch.compile for PyTorch 2.0+ (before DDP)
+    if args.use_compile and hasattr(torch, 'compile'):
+        if rank == 0:
+            print("Compiling model with torch.compile...")
+        model = torch.compile(model)
+    
     # Wrap model with DDP if distributed
     if is_distributed:
         model = DDP(model, device_ids=[local_rank], output_device=local_rank)
@@ -253,7 +266,9 @@ def main(args):
         batch_size=args.batch_size,
         shuffle=shuffle,
         sampler=train_sampler,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
+        pin_memory=True if device.type == 'cuda' else False,
+        persistent_workers=True if args.num_workers > 0 else False
     )
     
     if args.eval_file:
@@ -269,7 +284,9 @@ def main(args):
             batch_size=args.batch_size,
             shuffle=False,
             sampler=eval_sampler,
-            num_workers=args.num_workers
+            num_workers=args.num_workers,
+            pin_memory=True if device.type == 'cuda' else False,
+            persistent_workers=True if args.num_workers > 0 else False
         )
     else:
         eval_loader = None
@@ -285,6 +302,11 @@ def main(args):
         num_warmup_steps=warmup_steps,
         num_training_steps=total_steps
     )
+    
+    # Create gradient scaler for AMP
+    scaler = GradScaler() if device.type == 'cuda' else None
+    if rank == 0 and scaler is not None:
+        print("Using Automatic Mixed Precision (AMP)")
     
     # Training loop
     best_loss = float('inf')
@@ -304,7 +326,7 @@ def main(args):
         # Train
         train_metrics = train_epoch(
             model, train_loader, optimizer, scheduler, device,
-            args.diversity_weight, args.entropy_weight, rank
+            args.diversity_weight, args.entropy_weight, scaler, rank
         )
         
         if rank == 0:
@@ -404,7 +426,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_wandb", action="store_true", help="Use Weights & Biases logging")
     
     # System arguments
-    parser.add_argument("--num_workers", type=int, default=4, help="Number of data loading workers")
+    parser.add_argument("--num_workers", type=int, default=8, help="Number of data loading workers")
+    parser.add_argument("--use_compile", action="store_true", help="Use torch.compile for optimization (PyTorch 2.0+)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     
     args = parser.parse_args()
