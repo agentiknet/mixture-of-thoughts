@@ -111,11 +111,16 @@ echo "Accepting conda Terms of Service..."
 conda config --set allow_conda_downgrades true
 $HOME/miniconda3/bin/conda config --set channel_priority flexible
 
-# Create project structure (skip git clone since repo may be private)
-echo "Creating project structure..."
-mkdir -p $HOME/mixture-of-thoughts/mot/core
-mkdir -p $HOME/mixture-of-thoughts/data
-mkdir -p $HOME/mixture-of-thoughts/outputs
+# Clone public repo
+echo "Cloning repository..."
+cd $HOME
+if [ ! -d "mixture-of-thoughts" ]; then
+    git clone https://github.com/agentiknet/mixture-of-thoughts.git
+else
+    echo "Repository already exists, pulling latest..."
+    cd mixture-of-thoughts
+    git pull
+fi
 cd $HOME/mixture-of-thoughts
 
 # Create conda environment (using mamba for speed)

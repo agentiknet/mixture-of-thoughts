@@ -4,8 +4,17 @@
 
 set -e
 
+# Use absolute path for conda
+CONDA_PATH="$HOME/miniconda3/bin/conda"
+
+# Check if conda exists
+if [ ! -f "$CONDA_PATH" ]; then
+    echo "Error: Conda not found at $CONDA_PATH"
+    exit 1
+fi
+
 # Check if conda environment exists
-if ! conda env list | grep -q "^mot "; then
+if ! $CONDA_PATH env list | grep -q "^mot "; then
     echo "Error: mot environment not found. Run vm_setup.sh first!"
     exit 1
 fi
@@ -13,7 +22,7 @@ fi
 # Start tmux session with training
 tmux new-session -d -s training '
     eval "$(~/miniconda3/bin/conda shell.bash hook)"
-    conda activate mot
+    ~/miniconda3/bin/conda activate mot
     cd ~/mixture-of-thoughts
     
     echo "Starting training with V100-optimized settings..."
