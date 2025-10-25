@@ -67,6 +67,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable Weights & Biases logging"
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help="Override batch size from config"
+    )
     
     cmd_args = parser.parse_args()
     
@@ -80,9 +85,11 @@ if __name__ == "__main__":
     print(f"Loading config from: {config_path}")
     config = load_config(config_path)
     
-    # Override wandb setting if specified
+    # Override settings if specified
     if cmd_args.use_wandb:
         config['use_wandb'] = True
+    if cmd_args.batch_size:
+        config['batch_size'] = cmd_args.batch_size
     
     print("\nConfiguration:")
     print("-" * 50)
