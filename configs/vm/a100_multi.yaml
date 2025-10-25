@@ -1,0 +1,11 @@
+# Multi-A100 GPU VM Configuration
+name: mot-a100-multi
+machine_type: n1-standard-32
+gpu_type: nvidia-tesla-a100
+gpu_count: 4
+zone: us-central1-a
+boot_disk_size: 300
+training_config: configs/training/large_multigpu.yaml
+
+# Cost: ~$14.68/hour (4x A100)
+# 3-4x faster training than single GPU

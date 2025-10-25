@@ -7,12 +7,15 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from torch.optim import AdamW
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from transformers import get_linear_schedule_with_warmup
 import argparse
 from pathlib import Path
 import json
 from tqdm import tqdm
 import wandb
+import os
 
 from mot.core.model import MixtureOfThoughtsTransformer, MoTConfig
 
@@ -78,7 +81,28 @@ def compute_loss(outputs, labels, diversity_weight=0.1, entropy_weight=0.05):
     }
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weight, entropy_weight):
+def setup_distributed():
+    """Initialize distributed training"""
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        rank = int(os.environ['RANK'])
+        world_size = int(os.environ['WORLD_SIZE'])
+        local_rank = int(os.environ.get('LOCAL_RANK', 0))
+        
+        torch.cuda.set_device(local_rank)
+        torch.distributed.init_process_group(backend='nccl')
+        
+        return rank, world_size, local_rank
+    else:
+        return 0, 1, 0
+
+
+def cleanup_distributed():
+    """Clean up distributed training"""
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+
+
+def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weight, entropy_weight, rank=0):
     """Train for one epoch"""
     
     model.train()
@@ -87,7 +111,11 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weigh
     total_diversity = 0
     total_entropy = 0
     
-    progress_bar = tqdm(dataloader, desc="Training")
+    # Only show progress bar on main process
+    if rank == 0:
+        progress_bar = tqdm(dataloader, desc="Training")
+    else:
+        progress_bar = dataloader
     
     for batch_idx, (input_ids, labels) in enumerate(progress_bar):
         input_ids = input_ids.to(device)
@@ -112,22 +140,23 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weigh
         total_diversity += loss_dict['diversity_loss']
         total_entropy += loss_dict['entropy_loss']
         
-        # Update progress bar
-        progress_bar.set_postfix({
-            'loss': f"{loss_dict['total_loss'].item():.4f}",
-            'lm': f"{loss_dict['lm_loss']:.4f}",
-            'div': f"{loss_dict['diversity_loss']:.4f}"
-        })
-        
-        # Log to wandb
-        if wandb.run is not None:
-            wandb.log({
-                'train/loss': loss_dict['total_loss'].item(),
-                'train/lm_loss': loss_dict['lm_loss'],
-                'train/diversity_loss': loss_dict['diversity_loss'],
-                'train/entropy_loss': loss_dict['entropy_loss'],
-                'train/learning_rate': scheduler.get_last_lr()[0]
+        # Update progress bar (only on main process)
+        if rank == 0:
+            progress_bar.set_postfix({
+                'loss': f"{loss_dict['total_loss'].item():.4f}",
+                'lm': f"{loss_dict['lm_loss']:.4f}",
+                'div': f"{loss_dict['diversity_loss']:.4f}"
             })
+            
+            # Log to wandb
+            if wandb.run is not None:
+                wandb.log({
+                    'train/loss': loss_dict['total_loss'].item(),
+                    'train/lm_loss': loss_dict['lm_loss'],
+                    'train/diversity_loss': loss_dict['diversity_loss'],
+                    'train/entropy_loss': loss_dict['entropy_loss'],
+                    'train/learning_rate': scheduler.get_last_lr()[0]
+                })
     
     n_batches = len(dataloader)
     return {
@@ -138,7 +167,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, diversity_weigh
     }
 
 
-def evaluate(model, dataloader, device, diversity_weight, entropy_weight):
+def evaluate(model, dataloader, device, diversity_weight, entropy_weight, rank=0):
     """Evaluate model"""
     
     model.eval()
@@ -146,7 +175,8 @@ def evaluate(model, dataloader, device, diversity_weight, entropy_weight):
     total_lm_loss = 0
     
     with torch.no_grad():
-        for input_ids, labels in tqdm(dataloader, desc="Evaluating"):
+        progress_iter = tqdm(dataloader, desc="Evaluating") if rank == 0 else dataloader
+        for input_ids, labels in progress_iter:
             input_ids = input_ids.to(device)
             labels = labels.to(device)
             
@@ -164,17 +194,28 @@ def evaluate(model, dataloader, device, diversity_weight, entropy_weight):
 
 
 def main(args):
-    # Initialize wandb
-    if args.use_wandb:
-        wandb.init(
-            project="mixture-of-thoughts",
-            name=args.run_name,
-            config=vars(args)
-        )
+    # Setup distributed training
+    rank, world_size, local_rank = setup_distributed()
+    is_distributed = world_size > 1
     
     # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    if is_distributed:
+        device = torch.device(f'cuda:{local_rank}')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    if rank == 0:
+        print(f"Using device: {device}")
+        if is_distributed:
+            print(f"Distributed training: {world_size} GPUs")
+        
+        # Initialize wandb (only on main process)
+        if args.use_wandb:
+            wandb.init(
+                project="mixture-of-thoughts",
+                name=args.run_name,
+                config=vars(args)
+            )
     
     # Create config
     config = MoTConfig(
@@ -189,23 +230,45 @@ def main(args):
     model = MixtureOfThoughtsTransformer(config)
     model = model.to(device)
     
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    # Wrap model with DDP if distributed
+    if is_distributed:
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+    
+    if rank == 0:
+        print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     # Create datasets
     train_dataset = TextDataset(args.train_file, seq_length=args.seq_length, vocab_size=args.vocab_size)
+    
+    # Use DistributedSampler if distributed
+    if is_distributed:
+        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
+        shuffle = False
+    else:
+        train_sampler = None
+        shuffle = True
+    
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=shuffle,
+        sampler=train_sampler,
         num_workers=args.num_workers
     )
     
     if args.eval_file:
         eval_dataset = TextDataset(args.eval_file, seq_length=args.seq_length, vocab_size=args.vocab_size)
+        
+        if is_distributed:
+            eval_sampler = DistributedSampler(eval_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+        else:
+            eval_sampler = None
+        
         eval_loader = DataLoader(
             eval_dataset,
             batch_size=args.batch_size,
             shuffle=False,
+            sampler=eval_sampler,
             num_workers=args.num_workers
         )
     else:
@@ -229,66 +292,86 @@ def main(args):
     output_dir.mkdir(parents=True, exist_ok=True)
     
     for epoch in range(args.num_epochs):
-        print(f"\n{'='*70}")
-        print(f"Epoch {epoch + 1}/{args.num_epochs}")
-        print(f"{'='*70}")
+        # Set epoch for distributed sampler
+        if is_distributed and train_sampler is not None:
+            train_sampler.set_epoch(epoch)
+        
+        if rank == 0:
+            print(f"\n{'='*70}")
+            print(f"Epoch {epoch + 1}/{args.num_epochs}")
+            print(f"{'='*70}")
         
         # Train
         train_metrics = train_epoch(
             model, train_loader, optimizer, scheduler, device,
-            args.diversity_weight, args.entropy_weight
+            args.diversity_weight, args.entropy_weight, rank
         )
         
-        print(f"\nTraining metrics:")
-        print(f"  Loss: {train_metrics['loss']:.4f}")
-        print(f"  LM Loss: {train_metrics['lm_loss']:.4f}")
-        print(f"  Diversity: {train_metrics['diversity']:.4f}")
-        print(f"  Entropy: {train_metrics['entropy']:.4f}")
+        if rank == 0:
+            print(f"\nTraining metrics:")
+            print(f"  Loss: {train_metrics['loss']:.4f}")
+            print(f"  LM Loss: {train_metrics['lm_loss']:.4f}")
+            print(f"  Diversity: {train_metrics['diversity']:.4f}")
+            print(f"  Entropy: {train_metrics['entropy']:.4f}")
         
         # Evaluate
         if eval_loader is not None:
-            eval_metrics = evaluate(model, eval_loader, device, args.diversity_weight, args.entropy_weight)
-            print(f"\nEvaluation metrics:")
-            print(f"  Loss: {eval_metrics['loss']:.4f}")
-            print(f"  LM Loss: {eval_metrics['lm_loss']:.4f}")
+            eval_metrics = evaluate(model, eval_loader, device, args.diversity_weight, args.entropy_weight, rank)
             
-            if args.use_wandb:
-                wandb.log({
-                    'eval/loss': eval_metrics['loss'],
-                    'eval/lm_loss': eval_metrics['lm_loss'],
-                    'epoch': epoch
-                })
-            
-            # Save best model
-            if eval_metrics['loss'] < best_loss:
-                best_loss = eval_metrics['loss']
-                checkpoint_path = output_dir / "best_model.pt"
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': best_loss,
-                    'config': config.__dict__
-                }, checkpoint_path)
-                print(f"  ✅ Saved best model to {checkpoint_path}")
+            if rank == 0:
+                print(f"\nEvaluation metrics:")
+                print(f"  Loss: {eval_metrics['loss']:.4f}")
+                print(f"  LM Loss: {eval_metrics['lm_loss']:.4f}")
+                
+                if args.use_wandb:
+                    wandb.log({
+                        'eval/loss': eval_metrics['loss'],
+                        'eval/lm_loss': eval_metrics['lm_loss'],
+                        'epoch': epoch
+                    })
+                
+                # Save best model (only on main process)
+                if eval_metrics['loss'] < best_loss:
+                    best_loss = eval_metrics['loss']
+                    checkpoint_path = output_dir / "best_model.pt"
+                    
+                    # Save the underlying model (not DDP wrapper)
+                    model_state = model.module.state_dict() if is_distributed else model.state_dict()
+                    
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model_state,
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': best_loss,
+                        'config': config.__dict__
+                    }, checkpoint_path)
+                    print(f"  ✅ Saved best model to {checkpoint_path}")
         
-        # Save checkpoint
-        if (epoch + 1) % args.save_every == 0:
+        # Save checkpoint (only on main process)
+        if rank == 0 and (epoch + 1) % args.save_every == 0:
             checkpoint_path = output_dir / f"checkpoint_epoch_{epoch+1}.pt"
+            
+            # Save the underlying model (not DDP wrapper)
+            model_state = model.module.state_dict() if is_distributed else model.state_dict()
+            
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
+                'model_state_dict': model_state,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'config': config.__dict__
             }, checkpoint_path)
             print(f"  Saved checkpoint to {checkpoint_path}")
     
-    print(f"\n{'='*70}")
-    print("✅ Training complete!")
-    print(f"{'='*70}")
+    if rank == 0:
+        print(f"\n{'='*70}")
+        print("✅ Training complete!")
+        print(f"{'='*70}")
+        
+        if args.use_wandb:
+            wandb.finish()
     
-    if args.use_wandb:
-        wandb.finish()
+    # Clean up distributed
+    cleanup_distributed()
 
 
 if __name__ == "__main__":

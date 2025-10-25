@@ -1,0 +1,16 @@
+# Large model optimized for H100 80GB
+train_file: data/shakespeare.txt
+vocab_size: 50257
+hidden_size: 1024
+num_layers: 12
+num_thoughts: 8
+batch_size: 24
+num_epochs: 20
+learning_rate: 0.0001
+diversity_weight: 0.1
+entropy_weight: 0.05
+output_dir: outputs/h100_run
+run_name: mot_h100_large
+
+# Estimated training time: 2-3 hours
+# Model size: ~400M parameters

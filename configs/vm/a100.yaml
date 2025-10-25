@@ -1,0 +1,11 @@
+# A100 GPU VM Configuration
+name: mot-a100
+machine_type: n1-standard-16
+gpu_type: nvidia-tesla-a100
+gpu_count: 1
+zone: us-central1-a
+boot_disk_size: 200
+training_config: configs/training/a100.yaml
+
+# Cost: ~$3.67/hour per A100 (40GB)
+# Good balance of performance and cost

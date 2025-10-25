@@ -1,0 +1,10 @@
+# H100 GPU VM Configuration
+name: mot-h100
+machine_type: n1-standard-16
+gpu_type: nvidia-h100-80gb
+gpu_count: 1
+zone: us-central1-a
+boot_disk_size: 200
+training_config: configs/training/h100.yaml
+
+# Cost: ~$5.00/hour per H100

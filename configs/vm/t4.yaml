@@ -1,0 +1,11 @@
+# T4 GPU VM Configuration (current default)
+name: mot-t4
+machine_type: n1-standard-4
+gpu_type: nvidia-tesla-t4
+gpu_count: 1
+zone: us-central1-a
+boot_disk_size: 100
+training_config: configs/training/small.yaml
+
+# Cost: ~$0.35/hour per T4 (16GB)
+# Good for experimentation and small models

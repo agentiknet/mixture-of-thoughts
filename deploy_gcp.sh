@@ -154,29 +154,25 @@ SETUP_SCRIPT
     echo -e "${GREEN}✓ Environment setup complete${NC}"
 }
 
-# Function to upload code
-upload_code() {
-    echo -e "${GREEN}Uploading code to VM...${NC}"
-    
-    # Create list of files to upload
-    FILES_TO_UPLOAD=(
-        "mot/"
-        "train_mot.py"
-        "requirements.txt"
-    )
-    
-    for file in "${FILES_TO_UPLOAD[@]}"; do
-        if [ -e "$file" ]; then
-            gcloud compute scp --recurse "$file" $VM_NAME:~/mixture-of-thoughts/ --zone=$ZONE --project=$PROJECT_ID
-        fi
-    done
-    
-    echo -e "${GREEN}✓ Code uploaded${NC}"
-}
 
 # Function to start training
 start_training() {
     echo -e "${GREEN}Starting training...${NC}"
+    
+    # Pull latest code from git
+    gcloud compute ssh $VM_NAME --zone=$ZONE --project=$PROJECT_ID --command="cd ~/mixture-of-thoughts && git pull"
+    
+    # Make scripts executable
+    gcloud compute ssh $VM_NAME --zone=$ZONE --project=$PROJECT_ID --command="chmod +x ~/mixture-of-thoughts/train_distributed.sh"
+    
+    # Determine training command based on GPU count and config
+    if [ "$GPU_COUNT" -gt 1 ]; then
+        TRAIN_CMD="./train_distributed.sh \${TRAINING_CONFIG:-configs/training/large_multigpu.yaml}"
+        echo "Using distributed training for $GPU_COUNT GPUs"
+    else
+        TRAIN_CMD="python train_with_config.py --config \${TRAINING_CONFIG:-configs/training/medium.yaml}"
+        echo "Using single GPU training"
+    fi
     
     # Create training script
     cat > /tmp/start_training.sh << TRAIN_SCRIPT
@@ -186,21 +182,12 @@ set -e
 cd ~/mixture-of-thoughts
 
 # Activate conda environment
-eval "\$(~/miniconda3/bin/conda shell.bash hook)"
+source ~/miniconda3/etc/profile.d/conda.sh
 conda activate mot
 
 # Start training in tmux
 tmux new-session -d -s training "
-    python train_mot.py \\
-        --train_file data/shakespeare.txt \\
-        --vocab_size 50257 \\
-        --hidden_size $HIDDEN_SIZE \\
-        --num_layers $NUM_LAYERS \\
-        --batch_size $BATCH_SIZE \\
-        --num_epochs $TRAIN_EPOCHS \\
-        --use_wandb \\
-        --output_dir outputs/gcp_run \\
-        2>&1 | tee training.log
+    $TRAIN_CMD 2>&1 | tee training.log
 "
 
 echo "Training started in tmux session 'training'"
@@ -210,7 +197,7 @@ TRAIN_SCRIPT
 
     # Upload and run training script
     gcloud compute scp /tmp/start_training.sh $VM_NAME:~/start_training.sh --zone=$ZONE --project=$PROJECT_ID
-    gcloud compute ssh $VM_NAME --zone=$ZONE --project=$PROJECT_ID --command="bash ~/start_training.sh"
+    gcloud compute ssh $VM_NAME --zone=$ZONE --project=$PROJECT_ID --command="TRAINING_CONFIG=${TRAINING_CONFIG:-configs/training/medium.yaml} bash ~/start_training.sh"
     
     echo -e "${GREEN}✓ Training started!${NC}"
     echo ""
@@ -311,7 +298,6 @@ case "${1:-deploy}" in
         echo "Starting full deployment..."
         create_vm
         setup_vm
-        upload_code
         start_training
         echo ""
         echo -e "${GREEN}========================================================================"
@@ -332,11 +318,6 @@ case "${1:-deploy}" in
     
     setup)
         setup_vm
-        upload_code
-        ;;
-    
-    upload)
-        upload_code
         ;;
     
     train)
@@ -372,13 +353,12 @@ case "${1:-deploy}" in
         ;;
     
     *)
-        echo "Usage: $0 {deploy|create|setup|upload|train|monitor|status|download|stop|delete|ssh|costs}"
+        echo "Usage: $0 {deploy|create|setup|train|monitor|status|download|stop|delete|ssh|costs}"
         echo ""
         echo "Commands:"
-        echo "  deploy   - Full deployment (create + setup + upload + train)"
+        echo "  deploy   - Full deployment (create + setup + train)"
         echo "  create   - Create VM only"
         echo "  setup    - Setup environment on VM"
-        echo "  upload   - Upload code to VM"
         echo "  train    - Start training"
         echo "  monitor  - Attach to training session"
         echo "  status   - Check training status"

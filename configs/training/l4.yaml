@@ -1,0 +1,16 @@
+# Medium model optimized for L4 24GB
+train_file: data/shakespeare.txt
+vocab_size: 50257
+hidden_size: 512
+num_layers: 8
+num_thoughts: 8
+batch_size: 12
+num_epochs: 20
+learning_rate: 0.0001
+diversity_weight: 0.1
+entropy_weight: 0.05
+output_dir: outputs/l4_run
+run_name: mot_l4_medium
+
+# Estimated training time: 4-5 hours
+# Model size: ~150M parameters

@@ -1,0 +1,11 @@
+# L4 GPU VM Configuration
+name: mot-l4
+machine_type: n1-standard-8
+gpu_type: nvidia-l4
+gpu_count: 1
+zone: us-central1-a
+boot_disk_size: 150
+training_config: configs/training/l4.yaml
+
+# Cost: ~$0.75/hour per L4 (24GB)
+# Cost-effective option for medium models

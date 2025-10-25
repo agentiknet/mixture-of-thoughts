@@ -1,0 +1,18 @@
+# Very large model for multi-GPU training (4-8 GPUs)
+train_file: data/shakespeare.txt
+vocab_size: 50257
+hidden_size: 1536
+num_layers: 16
+num_thoughts: 8
+batch_size: 8  # Per GPU - effective batch = 8 x num_gpus
+num_epochs: 30
+learning_rate: 0.0001
+diversity_weight: 0.1
+entropy_weight: 0.05
+output_dir: outputs/multigpu_run
+run_name: mot_multigpu_xlarge
+use_wandb: true
+
+# Estimated training time: 4-6 hours on 4 GPUs
+# Model size: ~900M parameters
+# Effective batch size: 32 (8 per GPU x 4 GPUs)

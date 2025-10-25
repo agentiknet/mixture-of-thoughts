@@ -1,0 +1,16 @@
+# Small model for testing (T4, V100)
+train_file: data/shakespeare.txt
+vocab_size: 100
+hidden_size: 256
+num_layers: 4
+num_thoughts: 8
+batch_size: 16
+num_epochs: 5
+learning_rate: 0.0001
+diversity_weight: 0.1
+entropy_weight: 0.05
+output_dir: outputs/small_run
+run_name: mot_small_test
+
+# Estimated training time: ~30 minutes
+# Model size: ~30M parameters
