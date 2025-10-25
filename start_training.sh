@@ -20,14 +20,20 @@ if ! $CONDA_PATH env list | grep -q "^mot "; then
 fi
 
 # Start tmux session with training
-tmux new-session -d -s training '
-    eval "$(~/miniconda3/bin/conda shell.bash hook)"
-    ~/miniconda3/bin/conda activate mot
+tmux new-session -d -s training bash -c '
+    # Source conda initialization
+    source ~/miniconda3/etc/profile.d/conda.sh
+    conda activate mot
     cd ~/mixture-of-thoughts
     
     echo "Starting training with V100-optimized settings..."
     echo "Model: 512 hidden, 6 layers (~100M params)"
     echo "Batch: 8, Epochs: 20"
+    echo ""
+    
+    # Verify conda environment is active
+    echo "Python: $(which python)"
+    echo "PyTorch installed: $(python -c \"import torch; print(torch.__version__)\" 2>&1)"
     echo ""
     
     python train_mot.py \
@@ -43,6 +49,11 @@ tmux new-session -d -s training '
         --entropy_weight 0.05 \
         --output_dir outputs/v100_run \
         2>&1 | tee training.log
+    
+    # Keep session alive on error
+    echo ""
+    echo "Training finished or exited. Press Enter to close."
+    read
 '
 
 echo "✅ Training started in tmux session 'training'"
