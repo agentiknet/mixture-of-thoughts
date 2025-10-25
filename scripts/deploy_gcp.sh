@@ -106,10 +106,11 @@ fi
 # Initialize conda
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
-# Accept conda ToS
-echo "Accepting conda Terms of Service..."
-conda config --set allow_conda_downgrades true
-$HOME/miniconda3/bin/conda config --set channel_priority flexible
+# Configure conda - use conda-forge to avoid TOS issues
+echo "Configuring conda..."
+$HOME/miniconda3/bin/conda config --add channels conda-forge
+$HOME/miniconda3/bin/conda config --set channel_priority strict
+$HOME/miniconda3/bin/conda config --remove channels defaults 2>/dev/null || true
 
 # Clone public repo
 echo "Cloning repository..."
@@ -123,9 +124,9 @@ else
 fi
 cd $HOME/mixture-of-thoughts
 
-# Create conda environment (using mamba for speed)
+# Create conda environment
 echo "Creating conda environment..."
-$HOME/miniconda3/bin/conda create -n mot python=3.10 -y -c conda-forge
+$HOME/miniconda3/bin/conda create -n mot python=3.10 -y
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 conda activate mot
 

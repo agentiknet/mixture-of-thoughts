@@ -24,10 +24,11 @@ fi
 # Initialize conda
 eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 
-# Configure conda
+# Configure conda - use conda-forge to avoid TOS issues
 echo "Configuring conda..."
-conda config --set channel_priority flexible
-conda config --set allow_conda_downgrades true
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+conda config --remove channels defaults 2>/dev/null || true
 
 # Clone repo
 echo "Cloning repository..."
@@ -46,7 +47,7 @@ cd $HOME/mixture-of-thoughts
 # Create environment
 echo "Creating conda environment..."
 if ! conda env list | grep -q "^mot "; then
-    conda create -n mot python=3.10 -y -c conda-forge
+    conda create -n mot python=3.10 -y
 fi
 
 # Activate environment
