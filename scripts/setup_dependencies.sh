@@ -24,6 +24,10 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 echo "Installing other dependencies..."
 pip install transformers peft wandb tqdm sympy==1.13.1 fsspec pyyaml
 
+# Install local mot package in editable mode
+echo "Installing local mot package..."
+pip install -e .
+
 # Download training data
 echo "Downloading training data..."
 mkdir -p data
