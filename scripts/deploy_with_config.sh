@@ -139,4 +139,4 @@ export ZONE
 export TRAINING_CONFIG
 
 # Run deployment
-./deploy_gcp.sh "$COMMAND"
+./scripts/deploy_gcp.sh "$COMMAND"
