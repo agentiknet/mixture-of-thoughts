@@ -141,6 +141,9 @@ def main():
     print("\nCreating test data...")
     data = create_dummy_data(seq_length=128, vocab_size=100, num_samples=100)
     
+    # Store results
+    results = {}
+    
     # Test 1: Basic model (no optimizations)
     print("\n" + "=" * 70)
     print("Test 1: Baseline (no optimizations)")
@@ -151,6 +154,7 @@ def main():
     print(f"Model parameters: {params:,}")
     
     mean_time, std_time = test_training_step(model_basic, data, device, num_iters=10, use_amp=False)
+    results['baseline'] = mean_time
     print(f"Training step: {mean_time:.2f} ± {std_time:.2f} ms")
     
     del model_basic
@@ -164,7 +168,9 @@ def main():
     model_amp = MixtureOfThoughtsTransformer(config).to(device)
     
     mean_time, std_time = test_training_step(model_amp, data, device, num_iters=10, use_amp=True)
-    print(f"Training step: {mean_time:.2f} ± {std_time:.2f} ms")
+    results['amp'] = mean_time
+    speedup = results['baseline'] / mean_time
+    print(f"Training step: {mean_time:.2f} ± {std_time:.2f} ms ({speedup:.2f}x speedup)")
     
     del model_amp
     torch.cuda.empty_cache() if device.type == 'cuda' else None
@@ -180,7 +186,9 @@ def main():
         model_compiled = torch.compile(model_compiled)
         
         mean_time, std_time = test_training_step(model_compiled, data, device, num_iters=10, use_amp=True)
-        print(f"Training step: {mean_time:.2f} ± {std_time:.2f} ms")
+        results['compiled'] = mean_time
+        speedup = results['baseline'] / mean_time
+        print(f"Training step: {mean_time:.2f} ± {std_time:.2f} ms ({speedup:.2f}x speedup)")
         
         del model_compiled
         torch.cuda.empty_cache()
@@ -189,15 +197,21 @@ def main():
     print("\n" + "=" * 70)
     print("Summary")
     print("=" * 70)
+    print("\nResults:")
+    print(f"  Baseline:  {results['baseline']:.2f} ms (1.00x)")
+    if 'amp' in results:
+        speedup = results['baseline'] / results['amp']
+        print(f"  AMP:       {results['amp']:.2f} ms ({speedup:.2f}x speedup)")
+    if 'compiled' in results:
+        speedup = results['baseline'] / results['compiled']
+        print(f"  Compiled:  {results['compiled']:.2f} ms ({speedup:.2f}x speedup)")
+    
     print("\nKey findings:")
-    print("1. AMP typically provides 20-40% speedup on modern GPUs")
-    print("2. torch.compile can provide 30-50% additional speedup")
-    print("3. Combined optimizations can yield 2-3x total speedup")
-    print("\nFor comparison:")
-    print("  nanoGPT baseline: ~11.79 ms/iter (~30% MFU)")
-    print("  Current MoT code: ~14,990 ms/iter (1,270x slower)")
-    print("\nRemaining bottleneck: DataLoader overhead")
-    print("Solution: Use numpy memmap like nanoGPT for direct data access")
+    print("- AMP typically provides 20-40% speedup on modern GPUs")
+    print("- torch.compile can provide 30-50% additional speedup")
+    print("- Combined optimizations can yield 2-3x total speedup")
+    print("\nNote: For production training, consider using memmap for data loading")
+    print("      to reduce DataLoader overhead (see nanoGPT implementation)")
     print("=" * 70)
 
 
